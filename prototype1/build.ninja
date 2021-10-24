@@ -1,0 +1,116 @@
+ninja_required_version = 1.3
+
+builddir = out
+
+cflags = $
+  -std=c11 $
+  -g $
+  -fcolor-diagnostics $
+  -Wall $
+  -Wextra $
+  -Wvla $
+  -Wimplicit-fallthrough $
+  -Wno-missing-field-initializers $
+  -Wno-unused-parameter $
+  -Werror=implicit-function-declaration $
+  -Wcovered-switch-default $
+  -Wunused
+#-include sys.h
+
+ldflags =
+
+cflags_wasm = $
+  --no-standard-libraries $
+  -fvisibility=hidden $
+  -Ofast $
+  --target=wasm32
+
+cflags_host = $
+  -O3 $
+  -march=native
+
+ldflags_macos = $
+  -platform_version macos 10.15 10.15 $
+  -lSystem.B
+
+# --------------------------------------------------------------
+
+rule c2ll
+  command = clang -MMD -MF $out.d $cflags -emit-llvm -c -S -o $out $in
+  depfile = $out.d
+
+rule c2obj
+  command = clang -MMD -MF $out.d $cflags -c -o $out $in
+  depfile = $out.d
+
+rule c2bc
+  command = clang -MMD -MF $out.d $cflags -emit-llvm -c -o $out $in
+  depfile = $out.d
+
+rule ll2bc
+  command = llvm-as $in -o $out
+
+rule wasm_compile_and_link
+  command = clang $cflags $cflags_wasm $
+    -Wno-override-module $
+    -Wl,--no-entry $
+    -Wl,--no-gc-sections $
+    -Wl,--export-dynamic $
+    -Wl,--import-memory $
+    -Wl,-allow-undefined-file sys_wasm.syms $
+    -o $out $in
+
+rule macos_x64_ld
+  # ld aliases: ld.lld (Unix), ld64.lld (macOS), lld-link (Windows), wasm-ld (WebAssembly)
+  command = ld64.lld $ldflags -arch x86_64 $ldflags_macos $in -o $out
+
+rule wasm2wast
+  command = wasm2wat $in -o $out
+
+rule wasm_asyncify
+  command = wasm-opt --asyncify -O $in -o $out
+
+# --------------------------------------------------------------
+
+build $builddir/example_mac_x64.exe: macos_x64_ld $
+  $builddir/mac_x64/example.obj $
+  $builddir/mac_x64/syslib.obj $
+  $builddir/mac_x64/sys_posix.obj
+
+build $builddir/example.wasm: wasm_asyncify $builddir/example_desync.wasm
+
+build $builddir/example_desync.wasm: wasm_compile_and_link $
+  $builddir/wasm32/example.bc $
+  $builddir/wasm32/syslib.bc $
+  $builddir/wasm32/sys_wasm.bc
+
+# wasm2wast: brew install wabt
+build $builddir/example.wast: wasm2wast $builddir/example.wasm
+
+build $builddir/mac_x64/example.obj: c2obj example.c
+  cflags = $cflags $cflags_host
+build $builddir/mac_x64/syslib.obj: c2obj syslib.c
+  cflags = $cflags $cflags_host
+build $builddir/mac_x64/sys_posix.obj: c2obj sys_posix.c
+  cflags = $cflags $cflags_host
+
+build $builddir/wasm32/example.bc: c2bc example.c
+  cflags = $cflags $cflags_wasm
+build $builddir/wasm32/syslib.bc: c2bc syslib.c
+  cflags = $cflags $cflags_wasm
+build $builddir/wasm32/sys_wasm.bc: c2bc sys_wasm.c
+  cflags = $cflags $cflags_wasm
+
+# build $builddir/wasm32/example.bc: ll2bc $builddir/wasm32/example.ll
+# build $builddir/wasm32/syslib.bc: ll2bc $builddir/wasm32/syslib.ll
+# build $builddir/wasm32/sys_wasm.bc: ll2bc $builddir/wasm32/sys_wasm.ll
+# build $builddir/wasm32/sys_wasm2.bc: ll2bc sys_wasm.ll
+#
+# build $builddir/wasm32/example.ll: c2ll example.c
+#   cflags = $cflags $cflags_wasm
+# build $builddir/wasm32/syslib.ll: c2ll syslib.c
+#   cflags = $cflags $cflags_wasm
+# build $builddir/wasm32/sys_wasm.ll: c2ll sys_wasm.c
+#   cflags = $cflags $cflags_wasm
+
+default $builddir/example.wast $builddir/example_mac_x64.exe

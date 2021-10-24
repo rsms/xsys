@@ -1,0 +1,48 @@
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>sys wasm demo</title>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <link rel="stylesheet" href="https://rsms.me/raster/raster2.css">
+  <style type="text/css">
+  :root { --fontSize: 14px }
+  #console .err { color: #aa2200 }
+  </style>
+</head>
+<body>
+<button>Run program</button>
+<pre id="console"></pre>
+<script type="module">
+import * as sys from "../sys_web.js"
+(async() => {
+
+const prog = await sys.wasm_load("../out/example.wasm?" + Date.now())
+
+// hook up example HTML
+const run_button = document.querySelector("button")
+const console_elem = document.querySelector("#console")
+prog.onStdoutLine = (line) => {
+  console.log(line)
+  console_elem.appendChild(document.createTextNode(line + "\n"))
+}
+prog.onStderrLine = (line) => {
+  console.error(line)
+  const span = document.createElement("span")
+  span.className = "err"
+  span.innerText = line + "\n"
+  console_elem.appendChild(span)
+}
+run_button.onclick = async () => {
+  console_elem.innerText = ""
+  run_button.disabled = true
+  const main_ret = await prog.run()
+  prog.onStdoutLine("main returned " + main_ret)
+  run_button.disabled = false
+}
+
+})()
+</script>
+</body>
+</html>
